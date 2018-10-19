@@ -23,6 +23,8 @@ def create_app(config_name):
     app.engine = EngineRegistry(app=app, db=db)
     app.celery = Celery(app.import_name, broker=app.config['CELERY_BROKER_URI'])
 
+    etl.init_app(app, db)
+
     return app
 
 
@@ -34,7 +36,7 @@ def import_models(app):
             except (AttributeError, ModuleNotFoundError):
                 continue
 
-        app.signal.models_imported.send(app)
+        app.signal.etl_tables_imported.send(app)
 
 
 def import_tasks(app):
@@ -49,7 +51,6 @@ def import_tasks(app):
 
 
 app = create_app(os.getenv('APPENV', 'default'))
-etl.init_app(app, db)
 import_models(app)
 
 if __name__ == '__main__':

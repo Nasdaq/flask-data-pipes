@@ -33,6 +33,9 @@ class ETL(object):
         self.Pipeline = Pipeline
         self.fields = fields
         self.filetype = DefaultFileType
+        self._DataModel = None
+        self._DataObject = None
+
         self.app = app
         self.db = db
         if app is not None and db is not None:
@@ -124,15 +127,18 @@ class ETL(object):
             from .filetypes import FileType
             self.filetype = FileType
 
+            from .tables import table_factory
+            self._DataModel, self._DataObject = table_factory(db, self.filetype)
+
+            # add all tasks into namespace
             # add tasks to task exec registry (AttrDict)
-            from ..tasks import pipeline_task, processor_task
+            from .tasks import pipeline_task, processor_task, restart_stalled_pipelines
             self.Pipeline.exec.pipeline = pipeline_task
             self.Pipeline.exec.processor = processor_task
 
             # add DataObject next and insert-or-update method, db session and engine to db registry (AttrDict)
-            from ..models.objects import DataObject
-            self.Pipeline.db.next = DataObject.next
-            self.Pipeline.db.upsert = DataObject.upsert
+            self.Pipeline.db.next = self._DataObject.next
+            self.Pipeline.db.upsert = self._DataObject.upsert
             self.Pipeline.db.session = db.session
 
         # hack to stash engine property without executing get_engine(), necessary to avoid race condition on start up
@@ -148,7 +154,7 @@ class ETL(object):
         self.Pipeline.db.engine = Engine()
 
         if getattr(app, 'signal', None):
-            app.signal.register('models_imported', subscriber=self.push_registered_models)
+            app.signal.register('etl_tables_imported', subscriber=self.push_registered_models)
 
         else:
             warnings.warn('Signal system not initialized on app. Tasks will not be registered.')
@@ -186,11 +192,9 @@ class ETL(object):
 
     def push_registered_models(self, sender):
         """Updates db with registered tasks. Sender is the app object."""
-        from ..models.models import DataModel
-
         db = sender.extensions['sqlalchemy'].db
         for model, registry in self.Model._registry.items():
-            etl = DataModel(
+            etl = self._DataModel(
                 name=model,
                 pipeline=registry['pipeline'],
                 directory=registry['cls'].__directory__,
@@ -217,7 +221,6 @@ class ETL(object):
         :type func: post method
         """
         from ..ext.roles import require_role
-        from ..models.models import DataModel
 
         try:
             logger = self.get_app().logger
@@ -233,7 +236,9 @@ class ETL(object):
             try:
 
                 modelname = form.pop('data_model')
-                model = DataModel.query.filter_by(name=modelname).order_by(DataModel.pipeline_version.desc()).first_or_404()
+                model = self._DataModel.query.filter_by(name=modelname).order_by(
+                    self._DataModel.pipeline_version.desc()).first_or_404()
+
                 pipeline = self.Pipeline._registry[model.pipeline]['self']
 
                 for key, file in request.files.items():
