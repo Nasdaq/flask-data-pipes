@@ -1,6 +1,6 @@
 from flask import current_app as app
-from ..models.objects import DataObject
-from ..data_pipes.exceptions import StopPipeline, PipelineVersionError
+from .exceptions import StopPipeline, PipelineVersionError
+from ..ext.services import get_service
 
 
 @app.celery.task(serializer='pickle')
@@ -21,7 +21,8 @@ def processor_task(name, func, **kwargs):
 
 @app.celery.task
 def restart_stalled_pipelines():
-    data_objects = DataObject.query.filter(DataObject.pipeline_completed is not True).all()
+    etl = get_service('etl')
+    data_objects = etl._DataObject.query.filter(etl._DataObject.pipeline_completed is not True).all()
     for obj in data_objects:
         try:
             obj.advance()

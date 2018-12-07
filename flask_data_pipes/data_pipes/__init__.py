@@ -33,6 +33,9 @@ class ETL(object):
         self.Pipeline = Pipeline
         self.fields = fields
         self.filetype = DefaultFileType
+        self._DataModel = None
+        self._DataObject = None
+
         self.app = app
         self.db = db
         if app is not None and db is not None:
@@ -52,19 +55,7 @@ class ETL(object):
             )
 
         if 'DATA' not in app.config:
-            warnings.warn('DATA directory not set. Defaulting to "/tmp/".')
-
-        if 'DATA_TEMP' not in app.config:
-            warnings.warn('DATA_TEMP directory not set. Defaulting to "[DATA]/tmp/".')
-
-        if 'DATA_UPLOAD' not in app.config:
-            warnings.warn('DATA_UPLOAD directory not set. Defaulting to "[DATA]/uploads/".')
-
-        if 'DATA_EXTRACT' not in app.config:
-            warnings.warn('DATA_EXTRACT directory not set. Defaulting to "[DATA]/raw/".')
-
-        if 'DATA_TRANSFORM' not in app.config:
-            warnings.warn('DATA_TRANSFORM directory not set. Defaulting to "[DATA]/transformed/".')
+            warnings.warn('DATA directory not set. Defaulting to "/tmp/data".')
 
         if 'DATA_FORMAT' not in app.config:
             warnings.warn('DATA_FORMAT not set. Defaulting to "json_lines".')
@@ -81,11 +72,25 @@ class ETL(object):
         if 'ACCEPT' not in app.config:
             warnings.warn('ACCEPT not set. Default upload accept values will be used.')
 
-        app.config.setdefault('DATA', '/tmp')
+        # set data directory defaults if not assigned within app config
+        app.config.setdefault('DATA', '/tmp/data')
         app.config.setdefault('DATA_TEMP', os.path.join(app.config['DATA'], 'tmp'))
         app.config.setdefault('DATA_UPLOAD', os.path.join(app.config['DATA'], 'uploads'))
         app.config.setdefault('DATA_EXTRACT', os.path.join(app.config['DATA'], 'raw'))
         app.config.setdefault('DATA_TRANSFORM', os.path.join(app.config['DATA'], 'transformed'))
+
+        # create data directories if not present
+        [os.mkdir(dir_) for dir_ in [app.config['DATA'],
+                                     app.config['DATA_TEMP'],
+                                     app.config['DATA_UPLOAD'],
+                                     app.config['DATA_EXTRACT'],
+                                     app.config['DATA_TRANSFORM']
+                                     ] if not os.path.exists(dir_)]
+
+        # place lock file in temp directory to prevent deletion during file close operation
+        Path(app.config['DATA_TEMP'], '.dirlock').touch()
+
+        # set configuration defaults if not assigned within app config
         app.config.setdefault('DATA_FORMAT', 'json_lines')
         app.config.setdefault('DATA_COMPRESSION', True)
         app.config.setdefault('DATA_ENCODING', 'utf-8')
@@ -117,22 +122,22 @@ class ETL(object):
             'DATA_ENCODING_ERRORS': app.config['DATA_ENCODING_ERRORS']
         })
 
-        # place lock file in temp directory to prevent deletion during file close operation
-        Path(app.config['DATA_TEMP'], '.dirlock').touch()
-
         with app.app_context():
             from .filetypes import FileType
             self.filetype = FileType
 
+            from .tables import table_factory
+            self._DataModel, self._DataObject = table_factory(db, self.filetype)
+
+            # add all tasks into namespace
             # add tasks to task exec registry (AttrDict)
-            from ..tasks import pipeline_task, processor_task
+            from .tasks import pipeline_task, processor_task, restart_stalled_pipelines
             self.Pipeline.exec.pipeline = pipeline_task
             self.Pipeline.exec.processor = processor_task
 
             # add DataObject next and insert-or-update method, db session and engine to db registry (AttrDict)
-            from ..models.objects import DataObject
-            self.Pipeline.db.next = DataObject.next
-            self.Pipeline.db.upsert = DataObject.upsert
+            self.Pipeline.db.next = self._DataObject.next
+            self.Pipeline.db.upsert = self._DataObject.upsert
             self.Pipeline.db.session = db.session
 
         # hack to stash engine property without executing get_engine(), necessary to avoid race condition on start up
@@ -148,7 +153,7 @@ class ETL(object):
         self.Pipeline.db.engine = Engine()
 
         if getattr(app, 'signal', None):
-            app.signal.register('models_imported', subscriber=self.push_registered_models)
+            app.signal.register('etl_tables_imported', subscriber=self.push_registered_models)
 
         else:
             warnings.warn('Signal system not initialized on app. Tasks will not be registered.')
@@ -186,11 +191,9 @@ class ETL(object):
 
     def push_registered_models(self, sender):
         """Updates db with registered tasks. Sender is the app object."""
-        from ..models.models import DataModel
-
         db = sender.extensions['sqlalchemy'].db
         for model, registry in self.Model._registry.items():
-            etl = DataModel(
+            etl = self._DataModel(
                 name=model,
                 pipeline=registry['pipeline'],
                 directory=registry['cls'].__directory__,
@@ -217,7 +220,6 @@ class ETL(object):
         :type func: post method
         """
         from ..ext.roles import require_role
-        from ..models.models import DataModel
 
         try:
             logger = self.get_app().logger
@@ -233,7 +235,9 @@ class ETL(object):
             try:
 
                 modelname = form.pop('data_model')
-                model = DataModel.query.filter_by(name=modelname).order_by(DataModel.pipeline_version.desc()).first_or_404()
+                model = self._DataModel.query.filter_by(name=modelname).order_by(
+                    self._DataModel.pipeline_version.desc()).first_or_404()
+
                 pipeline = self.Pipeline._registry[model.pipeline]['self']
 
                 for key, file in request.files.items():

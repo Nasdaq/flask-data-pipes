@@ -68,7 +68,7 @@ with app.app_context():
         except (AttributeError, ModuleNotFoundError):
             continue
 
-app.signal.models_imported.send(app)
+app.signal.etl_tables_imported.send(app)
 ```
 
 ## Usage
@@ -129,10 +129,10 @@ UserPipeline()
 Stages are infinitely extensible via the ETL decorators and pre/post processor functions, including synchronous and asynchronous processors
 
 Default stages execute as follows:
-	* Upload: validates and saves file to disk as is
-	* Extract: writes json data to disk as received without edits
-	* Transform: utilizes model declaration to transform extracted data and write to disk
-	* Load: Inserts records to the corresponding table via raw transaction
+* Upload: validates and saves file to disk as is
+* Extract: writes json data to disk as received without edits
+* Transform: utilizes model declaration to transform extracted data and write to disk
+* Load: Inserts records to the corresponding table via raw transaction
 
 ### Logging and Versioning
 
