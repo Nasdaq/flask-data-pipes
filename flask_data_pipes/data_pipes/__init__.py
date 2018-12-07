@@ -55,19 +55,7 @@ class ETL(object):
             )
 
         if 'DATA' not in app.config:
-            warnings.warn('DATA directory not set. Defaulting to "/tmp/".')
-
-        if 'DATA_TEMP' not in app.config:
-            warnings.warn('DATA_TEMP directory not set. Defaulting to "[DATA]/tmp/".')
-
-        if 'DATA_UPLOAD' not in app.config:
-            warnings.warn('DATA_UPLOAD directory not set. Defaulting to "[DATA]/uploads/".')
-
-        if 'DATA_EXTRACT' not in app.config:
-            warnings.warn('DATA_EXTRACT directory not set. Defaulting to "[DATA]/raw/".')
-
-        if 'DATA_TRANSFORM' not in app.config:
-            warnings.warn('DATA_TRANSFORM directory not set. Defaulting to "[DATA]/transformed/".')
+            warnings.warn('DATA directory not set. Defaulting to "/tmp/data".')
 
         if 'DATA_FORMAT' not in app.config:
             warnings.warn('DATA_FORMAT not set. Defaulting to "json_lines".')
@@ -84,11 +72,25 @@ class ETL(object):
         if 'ACCEPT' not in app.config:
             warnings.warn('ACCEPT not set. Default upload accept values will be used.')
 
-        app.config.setdefault('DATA', '/tmp')
+        # set data directory defaults if not assigned within app config
+        app.config.setdefault('DATA', '/tmp/data')
         app.config.setdefault('DATA_TEMP', os.path.join(app.config['DATA'], 'tmp'))
         app.config.setdefault('DATA_UPLOAD', os.path.join(app.config['DATA'], 'uploads'))
         app.config.setdefault('DATA_EXTRACT', os.path.join(app.config['DATA'], 'raw'))
         app.config.setdefault('DATA_TRANSFORM', os.path.join(app.config['DATA'], 'transformed'))
+
+        # create data directories if not present
+        [os.mkdir(dir_) for dir_ in [app.config['DATA'],
+                                     app.config['DATA_TEMP'],
+                                     app.config['DATA_UPLOAD'],
+                                     app.config['DATA_EXTRACT'],
+                                     app.config['DATA_TRANSFORM']
+                                     ] if not os.path.exists(dir_)]
+
+        # place lock file in temp directory to prevent deletion during file close operation
+        Path(app.config['DATA_TEMP'], '.dirlock').touch()
+
+        # set configuration defaults if not assigned within app config
         app.config.setdefault('DATA_FORMAT', 'json_lines')
         app.config.setdefault('DATA_COMPRESSION', True)
         app.config.setdefault('DATA_ENCODING', 'utf-8')
@@ -119,9 +121,6 @@ class ETL(object):
             'DATA_ENCODING': app.config['DATA_ENCODING'],
             'DATA_ENCODING_ERRORS': app.config['DATA_ENCODING_ERRORS']
         })
-
-        # place lock file in temp directory to prevent deletion during file close operation
-        Path(app.config['DATA_TEMP'], '.dirlock').touch()
 
         with app.app_context():
             from .filetypes import FileType
