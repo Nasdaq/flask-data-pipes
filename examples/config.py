@@ -10,11 +10,6 @@ class Config(object):
 
     BASE_DIR = basedir
     DATA = os.getenv('DATA_DIR', os.path.join(BASE_DIR, 'appdata'))
-    DATA_TEMP = os.path.join(DATA, 'tmp')
-    DATA_UPLOAD = os.path.join(DATA, 'uploads')
-    DATA_EXTRACT = os.path.join(DATA, 'raw')
-    DATA_TRANSFORM = os.path.join(DATA, 'transformed')
-    [os.mkdir(dir) for dir in [DATA, DATA_UPLOAD, DATA_TEMP, DATA_EXTRACT, DATA_TRANSFORM] if not os.path.exists(dir)]
 
     DATA_FORMAT = 'json_lines'
     DATA_COMPRESSION = False
@@ -29,7 +24,7 @@ class Config(object):
     @classmethod
     def init_app(cls, app):
         # config modules
-        app.config['MODULES'].extend(['auth', 'celery', 'io', 'utils'])
+        app.config['MODULES'].extend(['auth', 'celery', 'utils'])
         app.config['MODULES'] = sorted(set(app.config['MODULES']))
 
         # config sqlalchemy bind
