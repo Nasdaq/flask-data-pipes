@@ -56,13 +56,13 @@ __ASYNC_TAGS__ = \
     ]
 
 
-def pre_upload(func=None, async=False):
+def pre_upload(func=None, asynchronous=False):
     """
     Register a method to invoke *before* upload. The method
     receives a dictionary of the file attrs. By default,
-    methods are executed synchronously (unless async=True) and
+    methods are executed synchronously (unless asynchronous=True) and
     responsible for returning the file attr dictionary for use
-    by the upload method. Data returned by async methods is not
+    by the upload method. Data returned by asynchronous methods is not
     returned to the pipeline.
 
     Note:
@@ -79,7 +79,7 @@ def pre_upload(func=None, async=False):
         ```
     """
 
-    return tag_processor(PRE_UPLOAD, func, async)
+    return tag_processor(PRE_UPLOAD, func, asynchronous)
 
 
 def upload(func=None, **kwargs):
@@ -88,16 +88,16 @@ def upload(func=None, **kwargs):
     method will take the place of `_upload` on the core Pipeline
     object.
     """
-    return tag_processor(UPLOAD, func, async=False, many=False, **kwargs)
+    return tag_processor(UPLOAD, func, asynchronous=False, many=False, **kwargs)
 
 
-def pre_extract(func=None, async=False):
+def pre_extract(func=None, asynchronous=False):
     """
     Register a method to invoke *before* extraction. The method
     receives the list of meta dictionaries via kwargs. By default,
-    methods are executed synchronously (unless async=True) and
+    methods are executed synchronously (unless asynchronous=True) and
     responsible for returning a list of meta dictionaries for use
-    by the extract method. Data returned by async methods is not
+    by the extract method. Data returned by asynchronous methods is not
     returned to the pipeline.
 
     Note:
@@ -121,7 +121,7 @@ def pre_extract(func=None, async=False):
         ```
     """
 
-    return tag_processor(PRE_EXTRACT, func, async)
+    return tag_processor(PRE_EXTRACT, func, asynchronous)
 
 
 def extract(func=None, many=False, **kwargs):
@@ -135,7 +135,7 @@ def extract(func=None, many=False, **kwargs):
     List[Tuple[Generator: from the file reader, dict: the meta dict]
     object is pass for user manipulation.
     """
-    return tag_processor(EXTRACT, func, async=False, many=many, **kwargs)
+    return tag_processor(EXTRACT, func, asynchronous=False, many=many, **kwargs)
 
 
 def post_extract(func=None):
@@ -160,16 +160,16 @@ def post_extract(func=None):
         ```
     """
 
-    return tag_processor(POST_EXTRACT, func, async=False)
+    return tag_processor(POST_EXTRACT, func, asynchronous=False)
 
 
-def pre_transform(func=None, async=False):
+def pre_transform(func=None, asynchronous=False):
     """
     Register a method to invoke *before* transformation. The method
     receives the list of meta dictionaries via kwargs. By default,
-    methods are executed synchronously (unless async=True) and
+    methods are executed synchronously (unless asynchronous=True) and
     responsible for returning a list of meta dictionaries for use
-    by the transform method. Data returned by async methods is not
+    by the transform method. Data returned by asynchronous methods is not
     returned to the pipeline.
 
     Note:
@@ -193,7 +193,7 @@ def pre_transform(func=None, async=False):
         ```
     """
 
-    return tag_processor(PRE_TRANSFORM, func, async)
+    return tag_processor(PRE_TRANSFORM, func, asynchronous)
 
 
 def transform(func=None, many=False, **kwargs):
@@ -207,7 +207,7 @@ def transform(func=None, many=False, **kwargs):
     List[Tuple[Generator: from the file reader, dict: the meta dict]
     object is pass for user manipulation.
     """
-    return tag_processor(TRANSFORM, func, async=False, many=many, **kwargs)
+    return tag_processor(TRANSFORM, func, asynchronous=False, many=many, **kwargs)
 
 
 def post_transform(func=None):
@@ -234,16 +234,16 @@ def post_transform(func=None):
         ```
     """
 
-    return tag_processor(POST_TRANSFORM, func, async=False)
+    return tag_processor(POST_TRANSFORM, func, asynchronous=False)
 
 
-def pre_load(func=None, async=False):
+def pre_load(func=None, asynchronous=False):
     """
     Register a method to invoke *before* load. The method receives
     the list of meta dictionaries via kwargs. By default,
-    methods are executed synchronously (unless async=True) and
+    methods are executed synchronously (unless asynchronous=True) and
     responsible for returning a list of meta dictionaries for use
-    by the load method. Data returned by async methods is not
+    by the load method. Data returned by asynchronous methods is not
     returned to the pipeline.
 
     Note:
@@ -267,7 +267,7 @@ def pre_load(func=None, async=False):
         ```
     """
 
-    return tag_processor(PRE_LOAD, func, async)
+    return tag_processor(PRE_LOAD, func, asynchronous)
 
 
 def load(func=None, many=False, record: bool=True, batches: int=None, **kwargs):
@@ -291,7 +291,7 @@ def load(func=None, many=False, record: bool=True, batches: int=None, **kwargs):
             return db.session.merge(self.tables(meta['model'], data))
         ```
     """
-    return tag_processor(LOAD, func, async=False, many=many, record=record, batches=batches, **kwargs)
+    return tag_processor(LOAD, func, asynchronous=False, many=many, record=record, batches=batches, **kwargs)
 
 
 def on_upload_commit(func=None):
@@ -307,7 +307,7 @@ def on_upload_commit(func=None):
         ```
     """
 
-    return tag_processor(ON_UPLOAD_COMMIT, func, async=True)
+    return tag_processor(ON_UPLOAD_COMMIT, func, asynchronous=True)
 
 
 def on_extract_commit(func=None):
@@ -322,7 +322,7 @@ def on_extract_commit(func=None):
             app.signal.upload_complete.send(meta['pkey'])
         ```
     """
-    return tag_processor(ON_EXTRACT_COMMIT, func, async=True)
+    return tag_processor(ON_EXTRACT_COMMIT, func, asynchronous=True)
 
 
 def on_transform_commit(func=None):
@@ -337,7 +337,7 @@ def on_transform_commit(func=None):
             app.signal.transform_complete.send(meta['pkey'])
         ```
     """
-    return tag_processor(ON_TRANSFORM_COMMIT, func, async=True)
+    return tag_processor(ON_TRANSFORM_COMMIT, func, asynchronous=True)
 
 
 def on_load_commit(func=None):
@@ -352,10 +352,10 @@ def on_load_commit(func=None):
             [app.signal.load_complete.send(entry['pkey']) for entry in meta]
         ```
     """
-    return tag_processor(ON_LOAD_COMMIT, func, async=True)
+    return tag_processor(ON_LOAD_COMMIT, func, asynchronous=True)
 
 
-def tag_processor(tag_name, func, async, **kwargs):
+def tag_processor(tag_name, func, asynchronous, **kwargs):
     """Tags decorated processor function to be picked up later.
     Only works with functions and instance methods. Class and
     static methods are not supported.
@@ -366,7 +366,7 @@ def tag_processor(tag_name, func, async, **kwargs):
     # Allow using this as either a decorator or a decorator factory.
     if func is None:
         return functools.partial(
-            tag_processor, tag_name, async=async, **kwargs
+            tag_processor, tag_name, asynchronous=asynchronous, **kwargs
         )
 
     # Set a pipeline_tags attribute instead of wrapping in some class,
@@ -376,13 +376,13 @@ def tag_processor(tag_name, func, async, **kwargs):
     except AttributeError:
         func.__pipeline_tags__ = pipeline_tags = set()
     # Also save the kwargs for the tagged function on
-    # __pipeline_kwargs__, keyed by (<tag_name>, <async>)
+    # __pipeline_kwargs__, keyed by (<tag_name>, <asynchronous>)
     try:
         pipeline_kwargs = func.__pipeline_kwargs__
     except AttributeError:
         func.__pipeline_kwargs__ = pipeline_kwargs = {}
 
-    pipeline_tags.add((tag_name, async))
-    pipeline_kwargs[(tag_name, async)] = kwargs  # todo: process kwargs on func
+    pipeline_tags.add((tag_name, asynchronous))
+    pipeline_kwargs[(tag_name, asynchronous)] = kwargs  # todo: process kwargs on func
 
     return func

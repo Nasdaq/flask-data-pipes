@@ -8,7 +8,7 @@ from .exceptions import (PipelineError, PipelineModelError,
 from collections import defaultdict
 from typing import Generator, List, Tuple
 from datetime import datetime
-from flask import _app_ctx_stack
+from flask import current_app, _app_ctx_stack
 from celery import chain
 from enum import Enum
 from itertools import islice
@@ -80,7 +80,7 @@ class PipelineMeta(type):
             PipelineMeta.__registry.setdefault(
                 cls.__qname__,
                 dict(cls=cls, self=None, models={}, task_schema=None, task_hashes=None, pipes=None,
-                     processors=dict(sync={tag: [] for tag in __SYNC_TAGS__}, async={tag: [] for tag in __ASYNC_TAGS__}),
+                     processors=dict(synchronous={tag: [] for tag in __SYNC_TAGS__}, asynchronous={tag: [] for tag in __ASYNC_TAGS__}),
                      stages={stage: None for stage in TASK_KEYS},
                      params={stage: None for stage in TASK_KEYS},
                      encoding={'type': attrs.get('encoding', None), 'errors': attrs.get('encoding_errors', None)},
@@ -125,7 +125,7 @@ class PipelineMeta(type):
         mro = inspect.getmro(cls)
         processor_kwargs = {stage: {} for stage in TASK_KEYS}
         stages = {stage: [] for stage in TASK_KEYS}
-        is_async = {True: 'async', False: 'sync'}
+        is_asynchronous = {True: 'asynchronous', False: 'synchronous'}
         for attr_name in dir(cls):
             # Need to look up the actual descriptor, not whatever might be
             # bound to the class. This needs to come from the __dict__ of the
@@ -149,14 +149,14 @@ class PipelineMeta(type):
             for tag in processor_tags:
                 # Use name here so we can get the bound method later, in case
                 # the processor was a descriptor or something.
-                # tag is keyed as (<tag_name>, <async>)
+                # tag is keyed as (<tag_name>, <asynchronous>)
                 if tag[0] in TASK_KEYS:
                     # append core stage functions, stash kwargs
                     stages[tag[0]].append(attr_name)
                     processor_kwargs[tag[0]] = attr.__pipeline_kwargs__[tag]
                 else:
-                    # Store in registry as {'sync': {<tag_name>:[], ... },  'async': {<tag_name>:[], ... }}
-                    PipelineMeta.__registry[cls.__qname__]['processors'][is_async[tag[1]]][tag[0]].append(attr_name)
+                    # Store in registry as {'synchronous': {<tag_name>:[], ... },  'asynchronous': {<tag_name>:[], ... }}
+                    PipelineMeta.__registry[cls.__qname__]['processors'][is_asynchronous[tag[1]]][tag[0]].append(attr_name)
 
         for stage, collection in stages.items():
             # set default many key for each stage
@@ -181,10 +181,10 @@ class PipelineMeta(type):
             # this method builds a list of methods simply for hashing
             if active:
                 # add user-defined pre_processors
-                # note: async processors are excluded as they do not have
+                # note: asynchronous processors are excluded as they do not have
                 # the ability to modify the stream of data
                 tasks[stage].extend(
-                    PipelineMeta.__registry[cls.__qname__]['processors']['sync'][f'pre_{stage}']
+                    PipelineMeta.__registry[cls.__qname__]['processors']['synchronous'][f'pre_{stage}']
                 )
                 # add core and primary execution methods
                 tasks[stage].extend([
@@ -196,7 +196,7 @@ class PipelineMeta(type):
                 if stage not in ['upload', 'load']:
                     # add user-defined post_processor (not available for `upload` or `load`)
                     tasks[stage].extend(
-                        PipelineMeta.__registry[cls.__qname__]['processors']['sync'][f'post_{stage}']
+                        PipelineMeta.__registry[cls.__qname__]['processors']['synchronous'][f'post_{stage}']
                     )
 
             else:
@@ -233,6 +233,9 @@ class Pipeline(metaclass=PipelineMeta):
             cls._build_pipes(self)
             cls._collect_stages(self)
             cls._collect_processors(self)
+
+            # register the pipeline as a celery task
+            _app_ctx_stack.top.app.celery.task(name=cls.__qname__)(cls)
 
         return cls._registry[cls.__qname__]['self']
 
@@ -284,7 +287,7 @@ class Pipeline(metaclass=PipelineMeta):
         for synchrony, collection in self.registry['processors'].items():
             for name, funcs in collection.items():
                 for idx, func in enumerate(funcs):
-                    # split processor dict between sync and async
+                    # split processor dict between synchronous and asynchronous
                     # iterate over k, v -> tag name, list of function descriptors
                     # enumerate the list of functions
                     # replace method descriptor with bound method, maintaining order
@@ -359,6 +362,21 @@ class Pipeline(metaclass=PipelineMeta):
     @property
     def encoding_errors(self):
         return self.registry['encoding']['errors'] or self.config['DATA_ENCODING_ERRORS']
+
+    @classmethod
+    def delay(cls, *args, **kwargs):
+        """Routing method for the celery task interface."""
+        return current_app.celery.tasks[cls.__qname__].delay(*args, **kwargs)
+
+    @classmethod
+    def apply_async(cls, *args, **kwargs):
+        """Routing method for the celery task interface."""
+        return current_app.celery.tasks[cls.__qname__].apply_async(*args, **kwargs)
+
+    @classmethod
+    def apply(cls, *args, **kwargs):
+        """Routing method for the celery task interface."""
+        return current_app.celery.tasks[cls.__qname__].apply(*args, **kwargs)
 
     def models(self, name: str, data=None, pkey=None, created=None, source=None):
         """Pass data to a model using its string name (class name,
@@ -476,14 +494,14 @@ class Pipeline(metaclass=PipelineMeta):
         # compile args and kwargs
         attrs = dict(filename=filename, model=model, created=created, **kwargs)
 
-        # execute pre upload processors (async)
-        for processor in self.registry['processors']['async']['pre_upload']:
+        # execute pre upload processors (asynchronous)
+        for processor in self.registry['processors']['asynchronous']['pre_upload']:
             self.exec.processor.delay(name=f'{self.__qname__}.pre_upload: {processor.__name__}',
                                       func=processor,
                                       **attrs)
 
-        # execute pre upload processors (sync) passing in meta
-        for processor in self.registry['processors']['sync']['pre_upload']:
+        # execute pre upload processors (synchronous) passing in meta
+        for processor in self.registry['processors']['synchronous']['pre_upload']:
             attrs = processor(**attrs)
 
         # call core upload method: save file to disk
@@ -492,8 +510,8 @@ class Pipeline(metaclass=PipelineMeta):
         # create db record for uploaded data object
         meta = self.db.upsert(stage='upload', file=path, created=created, model=model, user=user, meta=kwargs.get('meta', None))
 
-        # execute on upload commit processors (async)
-        for processor in self.registry['processors']['async']['on_upload_commit']:
+        # execute on upload commit processors (asynchronous)
+        for processor in self.registry['processors']['asynchronous']['on_upload_commit']:
             self.exec.processor.delay(name=f'{self.__qname__}.on_upload_commit: {processor.__name__}',
                                       func=processor, **dict(meta=[meta]))
 
@@ -504,13 +522,13 @@ class Pipeline(metaclass=PipelineMeta):
         return self.models(meta['model'], data, pkey=meta['pkey'], created=meta['created'], source=meta['file'])
 
     def _extract_processor(self, meta: List[dict]=None) -> Generator:
-        # execute pre extract processors (async)
-        for processor in self.registry['processors']['async']['pre_extract']:
+        # execute pre extract processors (asynchronous)
+        for processor in self.registry['processors']['asynchronous']['pre_extract']:
             self.exec.processor.delay(name=f'{self.__qname__}.pre_extract: {processor.__name__}',
                                       func=processor, **dict(meta=meta))
 
-        # execute pre extract processors (sync) passing in meta
-        for processor in self.registry['processors']['sync']['pre_extract']:
+        # execute pre extract processors (synchronous) passing in meta
+        for processor in self.registry['processors']['synchronous']['pre_extract']:
             meta = processor(meta=meta)
 
         # build data reader generator list if upload exists
@@ -532,8 +550,8 @@ class Pipeline(metaclass=PipelineMeta):
                 raise PipelineExecutionError(f'Extract method must yield an instance of io.Model, use '
                                              f'self.models method to resolve: received {type(o)}')
 
-            # execute post extract processors (sync) passing in data and the rebuilt meta
-            for processor in self.registry['processors']['sync']['post_extract']:
+            # execute post extract processors (synchronous) passing in data and the rebuilt meta
+            for processor in self.registry['processors']['synchronous']['post_extract']:
                 data = processor(data=data,
                                  meta=dict(pkey=o._pkey, model=o.__qname__, file=o._source, created=o._created))
                 # potential future option: pass many is true; but would slow down pipeline
@@ -554,13 +572,13 @@ class Pipeline(metaclass=PipelineMeta):
         return self.models(meta['model'], data, pkey=meta['pkey'], created=meta['created'], source=meta['file'])
 
     def _transform_processor(self, meta: List[dict]) -> Generator:
-        # execute pre transform processors (async)
-        for processor in self.registry['processors']['async']['pre_transform']:
+        # execute pre transform processors (asynchronous)
+        for processor in self.registry['processors']['asynchronous']['pre_transform']:
             self.exec.processor.delay(name=f'{self.__qname__}.pre_transform: {processor.__name__}',
                                       func=processor, **dict(meta=meta))
 
-        # execute pre transform processors (sync) passing in meta
-        for processor in self.registry['processors']['sync']['pre_transform']:
+        # execute pre transform processors (synchronous) passing in meta
+        for processor in self.registry['processors']['synchronous']['pre_transform']:
             meta = processor(meta=meta)
 
         data = []
@@ -583,8 +601,8 @@ class Pipeline(metaclass=PipelineMeta):
                 # denormalize data if a Denormalize field declared
                 data = denormalize(data, o._denormalize_on)
 
-            # execute post transform processors (sync) passing in deserialized data and the rebuilt meta
-            for processor in self.registry['processors']['sync']['post_transform']:
+            # execute post transform processors (synchronous) passing in deserialized data and the rebuilt meta
+            for processor in self.registry['processors']['synchronous']['post_transform']:
                 data = processor(data=data,
                                  meta=dict(pkey=o._pkey, model=o.__qname__, file=o._source, created=o._created))
                 # potential future option: pass many is true; but would slow down pipeline
@@ -616,13 +634,13 @@ class Pipeline(metaclass=PipelineMeta):
             )
 
     def _load_processor(self, meta: List[dict]) -> None:
-        # execute pre load processors (async)
-        for processor in self.registry['processors']['async']['pre_load']:
+        # execute pre load processors (asynchronous)
+        for processor in self.registry['processors']['asynchronous']['pre_load']:
             self.exec.processor.delay(name=f'{self.__qname__}.pre_load: {processor.__name__}',
                                       func=processor, **dict(meta=meta))
 
-        # execute pre load processors (sync) passing in meta
-        for processor in self.registry['processors']['sync']['pre_load']:
+        # execute pre load processors (synchronous) passing in meta
+        for processor in self.registry['processors']['synchronous']['pre_load']:
             meta = processor(meta=meta)
 
         data = []
@@ -671,8 +689,8 @@ class Pipeline(metaclass=PipelineMeta):
                     pkey=entry['pkey'], stage='load', file=entry['file'], model=entry['model'], created=entry['created']
                 )
 
-        # execute on load commit processor (async)
-        for processor in self.registry['processors']['async'][f'on_load_commit']:
+        # execute on load commit processor (asynchronous)
+        for processor in self.registry['processors']['asynchronous'][f'on_load_commit']:
             self.exec.processor.delay(name=f'{self.__qname__}.on_load_commit: {processor.__name__}',
                                       func=processor, **dict(meta=meta))
 
@@ -819,8 +837,8 @@ class Pipeline(metaclass=PipelineMeta):
         # create db record for committed data object
         meta = self.db.upsert(pkey=pkey, stage=stage, file=path, model=model, created=timestamp)
 
-        # execute on commit processors (async)
-        for processor in self.registry['processors']['async'][f'on_{stage}_commit']:
+        # execute on commit processors (asynchronous)
+        for processor in self.registry['processors']['asynchronous'][f'on_{stage}_commit']:
             self.exec.processor.delay(name=f'{self.__qname__}.on_{stage}_commit: {processor.__name__}',
                                       func=processor, **dict(meta=[meta]))
 
