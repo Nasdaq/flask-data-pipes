@@ -11,7 +11,6 @@ from marshmallow.fields import (
     Integer,
     Decimal,
     Boolean,
-    FormattedString,
     Float,
     TimeDelta,
     Url,
@@ -29,23 +28,23 @@ from marshmallow.fields import (
 
 
 class LowercaseString(fields.String):
-    def _serialize(self, value, attr, obj):
+    def _serialize(self, value, attr, obj, **kwargs):
         return lowercase(value)
 
 
 class UppercaseString(fields.String):
-    def _serialize(self, value, attr, obj):
+    def _serialize(self, value, attr, obj, **kwargs):
         return uppercase(value)
 
 
 class TitlecaseString(fields.String):
-    def _serialize(self, value, attr, obj):
+    def _serialize(self, value, attr, obj, **kwargs):
         return titlecase(value)
 
 
 class Date(fields.Date):
 
-    def _serialize(self, value, attr, obj):
+    def _serialize(self, value, attr, obj, **kwargs):
         if isinstance(value, (str, type(None))):
             return value
         try:
@@ -56,11 +55,11 @@ class Date(fields.Date):
 
 class DateTime(fields.DateTime):
 
-    def _serialize(self, value, attr, obj):
+    def _serialize(self, value, attr, obj, **kwargs):
         if isinstance(value, (str, type(None))):
             return value
         self.dateformat = self.dateformat or self.DEFAULT_FORMAT
-        format_func = self.DATEFORMAT_SERIALIZATION_FUNCS.get(self.dateformat, None)
+        format_func = self.SERIALIZATION_FUNCS.get(self.dateformat, None)
         if format_func:
             try:
                 return format_func(value, localtime=self.localtime)
@@ -71,7 +70,7 @@ class DateTime(fields.DateTime):
 
 
 class Time(fields.Time):
-    def _serialize(self, value, attr, obj):
+    def _serialize(self, value, attr, obj, **kwargs):
         if isinstance(value, (str, type(None))):
             return value
         try:
@@ -85,7 +84,7 @@ class Time(fields.Time):
 
 class HostName(fields.Field):
 
-    def _serialize(self, value, attr, obj):
+    def _serialize(self, value, attr, obj, **kwargs):
         try:
             value.lower()
             v = value.split('\\')

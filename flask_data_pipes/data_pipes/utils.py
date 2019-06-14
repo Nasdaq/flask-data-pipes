@@ -1,5 +1,4 @@
 from datetime import datetime
-from ipaddress import ip_address
 from collections import Iterable
 
 from werkzeug.datastructures import ImmutableMultiDict
@@ -164,7 +163,7 @@ def recast_timestamp(ms: int):
 def recast_ip(ip: int):
     """Recast ip address integers to a dotted quad string"""
     try:
-        return str(ip_address(ip))
+        return str(ipaddress.ip_address(ip))
 
     except ValueError:
         return None
