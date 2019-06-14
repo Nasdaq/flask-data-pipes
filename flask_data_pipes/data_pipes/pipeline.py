@@ -235,7 +235,10 @@ class Pipeline(metaclass=PipelineMeta):
             cls._collect_processors(self)
 
             # register the pipeline as a celery task
-            _app_ctx_stack.top.app.celery.task(name=cls.__qname__)(cls)
+            def pipeline_celery_wrapper():
+                self()
+
+            _app_ctx_stack.top.app.celery.task(name=cls.__qname__)(pipeline_celery_wrapper)
 
         return cls._registry[cls.__qname__]['self']
 
@@ -248,6 +251,7 @@ class Pipeline(metaclass=PipelineMeta):
             self(stage, meta)
 
     def __call__(self, stage=None, meta=None):
+        # todo: review subtask implementation options
         if stage is None:
             _pipeline = chain(*(self.pipes[task] for task in TASK_KEYS if self.schema[task]))
             _pipeline.delay(meta)
@@ -362,6 +366,8 @@ class Pipeline(metaclass=PipelineMeta):
     @property
     def encoding_errors(self):
         return self.registry['encoding']['errors'] or self.config['DATA_ENCODING_ERRORS']
+
+    # todo: review implementation
 
     @classmethod
     def delay(cls, *args, **kwargs):

@@ -9,7 +9,7 @@ from setuptools import setup, find_packages
 
 setup(
     name='Flask-Data-Pipes',
-    version='1.0.4a',
+    version='1.0.6a',
     url='https://github.com/Nasdaq/flask-data-pipes',
     license='APACHE-2.0',
     author='Jonathon Scarbeau',
